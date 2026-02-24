@@ -1,10 +1,10 @@
 from django.contrib import messages
 from django.contrib.auth import login, logout
 from django.contrib.auth.models import User
-from django.contrib.auth.decorators import login_required, user_passes_test
+from django.contrib.auth.decorators import login_required
 from django.contrib.auth.forms import AuthenticationForm
 from django.db import transaction
-from django.db.models import Q, Sum
+from django.db.models import Sum
 from django.http import JsonResponse
 from django.shortcuts import get_object_or_404, redirect, render
 from rest_framework import viewsets
@@ -17,22 +17,18 @@ from .serializers import ProductSerializer
 
 
 def home(request):
-    products = Product.objects.select_related('category').order_by('name')
+    products = Product.objects.all().order_by('name')
     return render(request, 'home.html', {'products': products})
 
 
 def login_view(request):
-    if request.user.is_authenticated and request.user.is_staff:
+    if request.user.is_authenticated:
         return redirect('dashboard')
 
     form = AuthenticationForm(request, data=request.POST or None)
     if request.method == 'POST' and form.is_valid():
-        user = form.get_user()
-        if not user.is_staff:
-            messages.error(request, 'Admin access only.')
-        else:
-            login(request, user)
-            return redirect('dashboard')
+        login(request, form.get_user())
+        return redirect('dashboard')
     return render(request, 'login.html', {'form': form})
 
 
@@ -41,23 +37,15 @@ def logout_view(request):
     return redirect('home')
 
 
-def admin_required(view_func):
-    return login_required(user_passes_test(lambda user: user.is_staff, login_url='login')(view_func))
-
-
-@admin_required
+@login_required
 def dashboard(request):
     query = request.GET.get('q', '').strip()
-    products = Product.objects.select_related('category').order_by('name')
+    products = Product.objects.all().order_by('name')
 
     if query:
-        products = products.filter(
-            Q(name__icontains=query)
-            | Q(description__icontains=query)
-            | Q(category__name__icontains=query)
-        )
+        products = products.filter(name__icontains=query)
 
-    total_revenue = Order.objects.aggregate(total=Sum('total_amount')).get('total') or Decimal('0.00')
+    total_revenue = Order.objects.aggregate(total=Sum('total_amount'))['total'] or Decimal('0.00')
 
     context = {
         'products': products,
@@ -69,7 +57,7 @@ def dashboard(request):
     return render(request, 'dashboard.html', context)
 
 
-@admin_required
+@login_required
 def product_create(request):
     form = ProductForm(request.POST or None)
     if request.method == 'POST' and form.is_valid():
@@ -79,7 +67,7 @@ def product_create(request):
     return render(request, 'product_form.html', {'form': form, 'title': 'Add Product'})
 
 
-@admin_required
+@login_required
 def product_update(request, pk):
     product = get_object_or_404(Product, pk=pk)
     form = ProductForm(request.POST or None, instance=product)
@@ -90,7 +78,7 @@ def product_update(request, pk):
     return render(request, 'product_form.html', {'form': form, 'title': 'Edit Product', 'product': product})
 
 
-@admin_required
+@login_required
 def product_delete(request, pk):
     product = get_object_or_404(Product, pk=pk)
     if request.method == 'POST':
@@ -100,17 +88,12 @@ def product_delete(request, pk):
     return render(request, 'product_confirm_delete.html', {'product': product})
 
 
-@admin_required
+@login_required
 def product_stock_update(request, pk):
     product = get_object_or_404(Product, pk=pk)
     if request.method == 'POST':
         action = request.POST.get('action')
-        amount_raw = request.POST.get('amount', '1')
-
-        try:
-            amount = max(1, int(amount_raw))
-        except ValueError:
-            amount = 1
+        amount = int(request.POST.get('amount', 1))
 
         if action == 'add':
             product.stock += amount
@@ -118,7 +101,7 @@ def product_stock_update(request, pk):
         elif action == 'reduce':
             product.stock = max(0, product.stock - amount)
             messages.success(request, f'Stock reduced by {amount}.')
-        product.save(update_fields=['stock'])
+        product.save()
 
     return redirect('dashboard')
 
@@ -128,64 +111,54 @@ def create_order(request):
         return JsonResponse({'status': 'error', 'message': 'Invalid request method.'}, status=405)
 
     try:
-        payload = json.loads(request.body)
-        items = payload.get('items', [])
+        data = json.loads(request.body)
+        items = data.get('items', [])
 
-        if not isinstance(items, list) or not items:
+        if not items:
             return JsonResponse({'status': 'error', 'message': 'Cart is empty.'}, status=400)
 
-        normalized_items = {}
-        for item in items:
-            product_id = int(item.get('id', 0))
-            quantity = int(item.get('quantity', 0))
-
-            if product_id <= 0 or quantity <= 0:
-                return JsonResponse({'status': 'error', 'message': 'Invalid cart item.'}, status=400)
-
-            normalized_items[product_id] = normalized_items.get(product_id, 0) + quantity
-
-        products = Product.objects.in_bulk(list(normalized_items.keys()))
-        if len(products) != len(normalized_items):
-            return JsonResponse({'status': 'error', 'message': 'Some products were not found.'}, status=404)
+        # Get or create a guest user for unauthenticated customers
+        if request.user.is_authenticated:
+            order_user = request.user
+        else:
+            order_user, _ = User.objects.get_or_create(username='guest_customer')
 
         total_amount = Decimal('0.00')
-        for product_id, qty in normalized_items.items():
-            product = products[product_id]
-            if product.stock < qty:
+
+        # Validate stock before creating the order
+        for item in items:
+            product = get_object_or_404(Product, id=item['id'])
+            if product.stock < item['quantity']:
                 return JsonResponse(
                     {'status': 'error', 'message': f'Not enough stock for {product.name}.'},
                     status=400,
                 )
-            total_amount += Decimal(str(product.price)) * qty
+            total_amount += product.price * item['quantity']
 
-        if request.user.is_authenticated:
-            order_user = request.user
-        else:
-            order_user, _ = User.objects.get_or_create(username='guest_customer', defaults={'is_active': True})
-
+        # Create the order and deduct stock
         with transaction.atomic():
             order = Order.objects.create(user=order_user, total_amount=total_amount)
-            for product_id, qty in normalized_items.items():
-                product = products[product_id]
+            for item in items:
+                product = Product.objects.get(id=item['id'])
                 OrderItem.objects.create(
                     order=order,
                     product=product,
-                    quantity=qty,
+                    quantity=item['quantity'],
                     price_at_time_of_order=product.price,
                 )
-                product.stock -= qty
-                product.save(update_fields=['stock'])
+                product.stock -= item['quantity']
+                product.save()
 
         return JsonResponse({'status': 'success', 'order_id': order.id})
 
-    except (ValueError, TypeError, KeyError, json.JSONDecodeError):
+    except Exception:
         return JsonResponse({'status': 'error', 'message': 'Invalid request data.'}, status=400)
 
 
-@admin_required
+@login_required
 def revenue_page(request):
-    orders = Order.objects.select_related('user').prefetch_related('items__product').order_by('-created_at')
-    total_revenue = orders.aggregate(total=Sum('total_amount')).get('total') or Decimal('0.00')
+    orders = Order.objects.all().order_by('-created_at')
+    total_revenue = orders.aggregate(total=Sum('total_amount'))['total'] or Decimal('0.00')
 
     context = {
         'orders': orders,
@@ -196,11 +169,11 @@ def revenue_page(request):
 
 
 class ProductViewSet(viewsets.ModelViewSet):
-    queryset = Product.objects.select_related('category').all().order_by('id')
+    queryset = Product.objects.all().order_by('id')
     serializer_class = ProductSerializer
 
     def get_queryset(self):
-        queryset = Product.objects.select_related('category').all().order_by('id')
+        queryset = Product.objects.all().order_by('id')
 
         name = self.request.query_params.get('name')
         category = self.request.query_params.get('category')
