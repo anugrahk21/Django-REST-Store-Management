@@ -1,0 +1,191 @@
+{% extends 'base.html' %}
+
+{% block content %}
+<div class="p-4 mb-4 bg-light rounded-3 border text-center">
+    <div class="py-4">
+        <h1 class="display-6 fw-bold">Store Items</h1>
+        <p class="text-muted mb-0">View available products and details.</p>
+    </div>
+</div>
+
+<div class="row row-cols-1 row-cols-md-3 g-4">
+    {% for product in products %}
+    <div class="col">
+        <div class="card h-100 shadow-sm product-card" data-id="{{ product.id }}" data-name="{{ product.name|escape }}" data-price="{{ product.price }}" data-stock="{{ product.stock }}">
+            <div class="card-body text-center">
+                <h5 class="card-title">{{ product.name }}</h5>
+                <span class="badge bg-secondary mb-2">{{ product.category.name }}</span>
+                <h4 class="text-success">${{ product.price }}</h4>
+                <p class="card-text text-muted">{{ product.description }}</p>
+            </div>
+            <div class="card-footer bg-white border-top-0 pb-3 text-center">
+                {% if product.stock > 0 %}
+                <span class="text-success">In Stock: {{ product.stock }}</span>
+                <div class="mt-3">
+                    <button class="btn btn-sm btn-primary add-to-cart-btn">Add to Cart</button>
+                </div>
+                {% else %}
+                <span class="text-danger">Out of Stock</span>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+    {% empty %}
+    <div class="col-12 text-center text-muted">
+        <p>No products available.</p>
+    </div>
+    {% endfor %}
+</div>
+
+<div class="card mt-4">
+    <div class="card-body">
+        <div class="d-flex justify-content-between align-items-center mb-3">
+            <h5 class="mb-0">Your Cart</h5>
+            <span class="badge bg-secondary" id="cartCount">0 items</span>
+        </div>
+        <div id="cartList" class="mb-3 text-muted">Cart is empty.</div>
+        <div class="d-flex justify-content-between align-items-center border-top pt-3">
+            <div>
+                <div class="text-muted">Total</div>
+                <div class="fs-4 fw-bold" id="cartTotal">$0.00</div>
+            </div>
+            <button class="btn btn-success" id="orderBtn">Order</button>
+        </div>
+    </div>
+</div>
+
+<script>
+    const cart = [];
+
+    function updateCartUI() {
+        const list = document.getElementById('cartList');
+        const count = document.getElementById('cartCount');
+        const totalEl = document.getElementById('cartTotal');
+
+        if (cart.length === 0) {
+            list.innerHTML = 'Cart is empty.';
+            count.innerText = '0 items';
+            totalEl.innerText = '$0.00';
+            return;
+        }
+
+        let total = 0;
+        let totalItems = 0;
+        list.innerHTML = '';
+
+        cart.forEach((item, index) => {
+            total += item.price * item.quantity;
+            totalItems += item.quantity;
+
+            const row = document.createElement('div');
+            row.className = 'd-flex justify-content-between align-items-center mb-2';
+            row.innerHTML = `
+                <div>
+                    <strong>${item.name}</strong>
+                    <span class="text-muted"> ($${item.price.toFixed(2)})</span>
+                </div>
+                <div class="d-flex align-items-center gap-2">
+                    <button class="btn btn-sm btn-outline-secondary" onclick="changeQty(${index}, -1)">-</button>
+                    <span>${item.quantity}</span>
+                    <button class="btn btn-sm btn-outline-secondary" onclick="changeQty(${index}, 1)">+</button>
+                </div>
+            `;
+            list.appendChild(row);
+        });
+
+        count.innerText = `${totalItems} item${totalItems > 1 ? 's' : ''}`;
+        totalEl.innerText = '$' + total.toFixed(2);
+    }
+
+    function addToCart(product) {
+        const existing = cart.find(item => item.id === product.id);
+        if (existing) {
+            if (existing.quantity >= product.stock) {
+                alert('No more stock available for this item.');
+                return;
+            }
+            existing.quantity += 1;
+        } else {
+            cart.push({
+                id: product.id,
+                name: product.name,
+                price: product.price,
+                stock: product.stock,
+                quantity: 1
+            });
+        }
+        updateCartUI();
+    }
+
+    function changeQty(index, delta) {
+        if (!cart[index]) return;
+
+        if (delta > 0 && cart[index].quantity >= cart[index].stock) {
+            alert('No more stock available for this item.');
+            return;
+        }
+
+        cart[index].quantity += delta;
+        if (cart[index].quantity <= 0) {
+            cart.splice(index, 1);
+        }
+        updateCartUI();
+    }
+
+    document.querySelectorAll('.product-card').forEach(card => {
+        const button = card.querySelector('.add-to-cart-btn');
+        if (!button) return;
+
+        button.addEventListener('click', function () {
+            addToCart({
+                id: Number(card.dataset.id),
+                name: card.dataset.name,
+                price: Number(card.dataset.price),
+                stock: Number(card.dataset.stock)
+            });
+        });
+    });
+
+    document.getElementById('orderBtn').addEventListener('click', function () {
+        if (cart.length === 0) {
+            alert('Your cart is empty.');
+            return;
+        }
+
+        const button = this;
+        button.disabled = true;
+        button.innerText = 'Ordering...';
+
+        fetch("{% url 'create_order' %}", {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'X-CSRFToken': '{{ csrf_token }}'
+            },
+            body: JSON.stringify({
+                items: cart.map(item => ({ id: item.id, quantity: item.quantity }))
+            })
+        })
+            .then(response => response.json())
+            .then(data => {
+                if (data.status === 'success') {
+                    alert('Order placed successfully! Order ID: #' + data.order_id);
+                    cart.length = 0;
+                    updateCartUI();
+                    location.reload();
+                } else {
+                    alert(data.message || 'Order failed.');
+                }
+            })
+            .catch(() => {
+                alert('Order failed. Please try again.');
+            })
+            .finally(() => {
+                button.disabled = false;
+                button.innerText = 'Order';
+            });
+    });
+
+    updateCartUI();
+</script>
+{% endblock %}

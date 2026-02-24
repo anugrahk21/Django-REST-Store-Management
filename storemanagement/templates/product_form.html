@@ -1,0 +1,51 @@
+{% extends 'admin_base.html' %}
+
+{% block page_title %}{{ title }}{% endblock %}
+
+{% block content %}
+<div class="card p-4" style="max-width: 700px; margin: 0 auto;">
+    <form method="post">
+        {% csrf_token %}
+
+        {% if form.non_field_errors %}
+        <div class="alert alert-danger">{{ form.non_field_errors }}</div>
+        {% endif %}
+
+        <div class="mb-3">
+            <label class="form-label">Product Name</label>
+            {{ form.name }}
+            <small class="text-danger">{{ form.name.errors|striptags }}</small>
+        </div>
+
+        <div class="mb-3">
+            <label class="form-label">Description</label>
+            {{ form.description }}
+            <small class="text-danger">{{ form.description.errors|striptags }}</small>
+        </div>
+
+        <div class="row">
+            <div class="col-md-6 mb-3">
+                <label class="form-label">Price ($)</label>
+                {{ form.price }}
+                <small class="text-danger">{{ form.price.errors|striptags }}</small>
+            </div>
+            <div class="col-md-6 mb-3">
+                <label class="form-label">Stock Quantity</label>
+                {{ form.stock }}
+                <small class="text-danger">{{ form.stock.errors|striptags }}</small>
+            </div>
+        </div>
+
+        <div class="mb-3">
+            <label class="form-label">Category</label>
+            {{ form.category }}
+            <small class="text-danger">{{ form.category.errors|striptags }}</small>
+        </div>
+
+        <div class="d-flex justify-content-between">
+            <a href="{% url 'dashboard' %}" class="btn btn-outline-secondary">Cancel</a>
+            <button type="submit" class="btn btn-primary">Save</button>
+        </div>
+    </form>
+</div>
+{% endblock %}

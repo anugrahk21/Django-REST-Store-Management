@@ -1,0 +1,92 @@
+{% extends 'admin_base.html' %}
+
+{% block page_title %}Product Dashboard{% endblock %}
+
+{% block content %}
+<div class="row g-3 mb-4">
+    <div class="col-md-3">
+        <div class="card p-3">
+            <div class="text-muted">Total Products</div>
+            <div class="fs-3 fw-bold">{{ product_count }}</div>
+        </div>
+    </div>
+    <div class="col-md-3">
+        <div class="card p-3">
+            <div class="text-muted">Low Stock (&lt; 10)</div>
+            <div class="fs-3 fw-bold text-danger">{{ low_stock_count }}</div>
+        </div>
+    </div>
+    <div class="col-md-3">
+        <a href="{% url 'revenue' %}" class="card p-3 text-decoration-none h-100 d-block">
+            <div class="text-muted">Revenue</div>
+            <div class="fs-3 fw-bold text-success">${{ total_revenue|floatformat:2 }}</div>
+        </a>
+    </div>
+    <div class="col-md-3 d-flex align-items-stretch">
+        <a href="{% url 'product_create' %}" class="btn btn-primary w-100 d-flex align-items-center justify-content-center">+ Add New Product</a>
+    </div>
+</div>
+
+<div class="card">
+    <div class="card-body">
+        <form method="get" class="row g-2 mb-3">
+            <div class="col-md-10">
+                <input type="text" class="form-control" name="q" placeholder="Search by product name/category" value="{{ query }}">
+            </div>
+            <div class="col-md-2 d-grid">
+                <button type="submit" class="btn btn-outline-primary">Search</button>
+            </div>
+        </form>
+
+        <div class="table-responsive">
+            <table class="table table-striped align-middle">
+                <thead>
+                    <tr>
+                        <th>Name</th>
+                        <th>Category</th>
+                        <th>Price</th>
+                        <th>Stock</th>
+                        <th>Stock Actions</th>
+                        <th>Actions</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for product in products %}
+                    <tr>
+                        <td>
+                            <div class="fw-semibold">{{ product.name }}</div>
+                            <small class="text-muted">{{ product.description|truncatewords:10 }}</small>
+                        </td>
+                        <td>{{ product.category.name }}</td>
+                        <td>${{ product.price }}</td>
+                        <td>
+                            {% if product.stock < 10 %}
+                            <span class="badge bg-danger">{{ product.stock }}</span>
+                            {% else %}
+                            <span class="badge bg-success">{{ product.stock }}</span>
+                            {% endif %}
+                        </td>
+                        <td>
+                            <form method="post" action="{% url 'product_stock_update' product.id %}" class="d-flex gap-2">
+                                {% csrf_token %}
+                                <input type="number" name="amount" min="1" value="1" class="form-control form-control-sm" style="max-width: 80px;">
+                                <button class="btn btn-sm btn-outline-success" name="action" value="add">+ Stock</button>
+                                <button class="btn btn-sm btn-outline-warning" name="action" value="reduce">- Stock</button>
+                            </form>
+                        </td>
+                        <td>
+                            <a href="{% url 'product_update' product.id %}" class="btn btn-sm btn-outline-primary">Edit</a>
+                            <a href="{% url 'product_delete' product.id %}" class="btn btn-sm btn-outline-danger">Delete</a>
+                        </td>
+                    </tr>
+                    {% empty %}
+                    <tr>
+                        <td colspan="6" class="text-center py-4">No products found.</td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+{% endblock %}
