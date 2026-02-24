@@ -307,6 +307,6 @@ Ready to discuss **Web Dev** or share **interview experiences**? Let's connect!
 **Anugrah K.**  
 *AI & Cybersecurity Enthusiast*  
 
-📧 [Email](mailto:[EMAIL_ADDRESS])  
+📧 [Email](mailto:anugrah.k910@gmail.com)  
 🔗 [GitHub](https://github.com/anugrahk21)  
 💼 [LinkedIn](https://linkedin.com/in/anugrah-k)
